@@ -1,93 +1,130 @@
-from mpi4py import MPI
-import numpy as np
+import os
 import sys
+import numpy as np
+from mpi4py import MPI
 
-# Function to compress data using MPS techniques
-def compress_data(data, bond_dimension):
-    # Convert data to a list of characters
-    characters = list(data)
 
-    # Create the MPS tensor network
-    num_chars = len(characters)
-    tensors = []
+def verificar_path(path_w):
+    return os.path.exists(path_w)
 
-    # Initialize the boundary tensors
-    tensors.append(np.random.rand(1, bond_dimension, bond_dimension))
-    tensors.append(np.random.rand(bond_dimension, 1, bond_dimension))
 
-    # Create the core tensors
-    for i in range(1, num_chars - 1):
-        tensors.append(np.random.rand(bond_dimension, bond_dimension, bond_dimension))
+class HuffmanNode:
+    def __init__(self, freq, value=None, left=None, right=None):
+        self.freq = freq
+        self.value = value
+        self.left = left
+        self.right = right
 
-    # Initialize the compression
-    compressed_data = []
+    def __lt__(self, other):
+        return self.freq < other.freq
 
-    # Compress each character
-    for i in range(num_chars):
-        char = characters[i]
-        tensor = tensors[i]
+    def __eq__(self, other):
+        return self.freq == other.freq
 
-        # Contract the MPS tensor with the character tensor
-        contracted_tensor = np.tensordot(tensor, char, axes=(2, 0))
 
-        # Reduce the bond dimension using singular value decomposition (SVD)
-        U, S, V = np.linalg.svd(contracted_tensor, full_matrices=False)
-        U_truncated = U[:, :bond_dimension]
-        S_truncated = S[:bond_dimension]
-        V_truncated = V[:bond_dimension, :]
+def build_freq_dict(text):
+    freq_dict = {}
+    for char in text:
+        if char in freq_dict:
+            freq_dict[char] += 1
+        else:
+            freq_dict[char] = 1
+    return freq_dict
 
-        # Update the MPS tensor and the next boundary tensor
-        tensors[i] = U_truncated
-        next_boundary_tensor = np.diag(S_truncated) @ V_truncated
 
-        # Add the compressed character to the compressed data
-        compressed_data.append(next_boundary_tensor)
+def build_huffman_tree(freq_dict):
+    nodos = [HuffmanNode(freq=freq, value=char) for char, freq in freq_dict.items()]
+    while len(nodos) > 1:
+        nodos.sort()
+        left = nodos.pop(0)
+        right = nodos.pop(0)
+        parent = HuffmanNode(freq=left.freq + right.freq, left=left, right=right)
+        nodos.append(parent)
+    return nodos[0]
 
-    return compressed_data
 
-# Read the input file
-def read_input_file(input_file):
-    with open(input_file, 'r') as file:
-        data = file.read()
-    return data
-
-# Main function
-def main():
-    # Initialize MPI
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-
-    # Check if the input file and bond dimension are provided
-    if len(sys.argv) < 3:
-        if rank == 0:
-            print("Usage: mpiexec -n <num_processes> python compress.py input_file bond_dimension")
+def build_codewords(nodo, code="", codewords={}):
+    if nodo is None:
         return
+    if nodo.value is not None:
+        codewords[nodo.value] = code
+    build_codewords(nodo.left, code + "0", codewords)
+    build_codewords(nodo.right, code + "1", codewords)
 
-    input_file = sys.argv[1]
-    bond_dimension = int(sys.argv[2])
 
-    # Read the input file on the root process
-    if rank == 0:
-        data = read_input_file(input_file)
+def compress_text(text):
+    freq_dict = build_freq_dict(text)
+    tree = build_huffman_tree(freq_dict)
+    pclave = {}
+    build_codewords(tree, codewords=pclave)
+    compressed = ""
+    for char in text:
+        compressed += pclave[char]
+    binary = bytes(int(compressed[i : i + 8], 2) for i in range(0, len(compressed), 8))
+    return binary, tree
+
+
+def write_compressed_file(file_path, compressed_data, tree, interline):
+    with open(file_path, "wb") as f:
+        np.save(f, (tree, interline))
+        f.write(compressed_data)
+
+
+def compress_file(file_path, interline):
+    with open(file_path, "r", encoding="ISO-8859-1") as f:
+        text = f.read()
+    text += " holaab"
+    compressed_data, tree = compress_text(text)
+    compressed_file_path = "comprimido.elmejorprofesor"
+    write_compressed_file(compressed_file_path, compressed_data, tree, interline)
+    f.close()
+
+
+def verify_interline(filename):
+    with open(filename, "rb") as f:
+        contenido = f.read()
+
+    if b"\r\n" in contenido:
+        return "\r\n"
     else:
-        data = None
+        return "\n"
 
-    # Distribute the data among processes
-    data = comm.bcast(data, root=0)
 
-    # Perform compression on each process
-    compressed_data = compress_data(data, bond_dimension)
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
 
-    # Gather compressed data to the root process
-    compressed_data = comm.gather(compressed_data, root=0)
+Inicio = np.datetime64("now")
+filename = sys.argv[1]
+interline = verify_interline(filename)
+compressed_data_list=None
+compressed_data=None
+merged_data=None
 
-    # Root process writes the compressed data to the output file
-    if rank == 0:
-        output_file = input_file + ".compressed"
-        with open(output_file, 'wb') as file:
-            for process_data in compressed_data:
-                for compressed_char in process_data:
-                    np.save(file, compressed_char)
+if rank == 0:
+    compress_file(filename, interline)
+    Final = np.datetime64("now")
+    time = Final - Inicio
+    print(time / np.timedelta64(1, "s"))
+else:#ISO-8859-1
+    with open(filename, "r", encoding="utf-8") as f:
+        text = f.read()
+    text += " holaab"
+    compressed_data, _ = compress_text(text)
+    comm.send(compressed_data, dest=0)
 
-        print("Compression completed. Compressed data is saved in", output_file)
+if rank == 0:
+    compressed_data_list=comm.bcast(compressed_data_list,root=0)
+    compressed_data=comm.bcast(compressed_data,root=0)
+    size=comm.bcast(size,root=0)
+    compressed_data_list = [compressed_data]
+    for i in range(1, size):
+        compressed_data = comm.recv(source=i)
+        if compressed_data is not None:
+            compressed_data_list.append(compressed_data)
+    MPI.Finalize()
+    merged_data=comm.bcast(merged_data,root=0)
+    merged_data = b"".join(compressed_data_list) 
+    #merged_data = b"".join(bytes(data) for data in compressed_data_list if data is not None)
+    write_compressed_file("comprimido.elmejorprofesor", merged_data, None, interline)
+    
