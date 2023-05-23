@@ -41,6 +41,8 @@ def decode_text(info_comp, tree):
             nodo = nodo.right
         if nodo.value is not None:
             decoded += nodo.value
+            if decoded.endswith(" hola"):
+                break
             nodo = tree
     return decoded
 
@@ -58,9 +60,7 @@ def decompress_file(file_path):
         f.write(new_text)
         # + '\n'
         f.close()
-
-
-
+        
 Inicio = np.datetime64("now")
 filename = sys.argv[1]
 if verificar_path(filename):

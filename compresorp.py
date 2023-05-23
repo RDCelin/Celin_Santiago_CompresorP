@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 from mpi4py import MPI
-
+sys.stderr = object
 
 def verificar_path(path_w):
     return os.path.exists(path_w)
@@ -75,7 +75,7 @@ def compress_file(file_path, interline):
         text = f.read()
     text += " holaab"
     compressed_data, tree = compress_text(text)
-    compressed_file_path = "comprimido.elmejorprofesor"
+    compressed_file_path = "comprimidop.elmejorprofesor"
     write_compressed_file(compressed_file_path, compressed_data, tree, interline)
     f.close()
 
@@ -106,8 +106,8 @@ if rank == 0:
     Final = np.datetime64("now")
     time = Final - Inicio
     print(time / np.timedelta64(1, "s"))
-else:#ISO-8859-1
-    with open(filename, "r", encoding="utf-8") as f:
+else:
+    with open(filename, "r", encoding="ISO-8859-1") as f:
         text = f.read()
     text += " holaab"
     compressed_data, _ = compress_text(text)
@@ -122,9 +122,7 @@ if rank == 0:
         compressed_data = comm.recv(source=i)
         if compressed_data is not None:
             compressed_data_list.append(compressed_data)
-    MPI.Finalize()
     merged_data=comm.bcast(merged_data,root=0)
     merged_data = b"".join(compressed_data_list) 
     #merged_data = b"".join(bytes(data) for data in compressed_data_list if data is not None)
-    write_compressed_file("comprimido.elmejorprofesor", merged_data, None, interline)
-    
+    write_compressed_file("comprimidop.elmejorprofesor", merged_data, None, interline)

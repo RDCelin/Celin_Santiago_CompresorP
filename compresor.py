@@ -91,7 +91,9 @@ def verify_interline(filename):
 
 Inicio = np.datetime64("now")
 filename = sys.argv[1]
+
 interline = verify_interline(filename)
+
 compress_file(filename, interline)
 Final = np.datetime64("now")
 time = Final - Inicio
